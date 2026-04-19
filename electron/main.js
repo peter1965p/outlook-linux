@@ -1,46 +1,63 @@
-const { app, BrowserWindow, shell } = require("electron");
-const path = require("path");
-const isDev = require("electron-is-dev");
+const { app, BrowserWindow, ipcMain } = require('electron');
+const { ImapFlow } = require('imapflow');
+const path = require('path');
 
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    title: "Outlook Linux",
-    backgroundColor: "#0d0f14", // Passend zu deinem CSS
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  // DER ENTSCHEIDENDE FIX:
-  if (isDev) {
-    // Im Entwicklungsmodus: Lade vom React Dev Server
-    win.loadURL("http://localhost:3000");
-    // Öffne die DevTools automatisch beim Starten im Dev-Mode
-    win.webContents.openDevTools();
-  } else {
-    // Im produktiven Build: Lade die statische Datei aus dem build-Ordner
-    // Da die main.js in /electron liegt, müssen wir eine Ebene höher gehen (..)
-    win.loadFile(path.join(__dirname, "../build/index.html"));
-  }
-
-  // Verhindert, dass neue Fenster in der App geöffnet werden (z.B. externe Links)
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    // Microsoft Login-URLs im Fenster lassen
-    if (url.includes("microsoftonline.com") || url.includes("live.com")) {
-      return { action: "allow" };
+// Deine Mail-Konfiguration (für United Domains)
+const mailConfig = {
+    host: 'imap.udag.de',
+    port: 993,
+    secure: true,
+    auth: {
+        user: 'news24regional@gmail.com', // Oder deine @paeffgen-it.de Adresse
+        pass: 'DEIN_PASSWORT' 
     }
-    // Alle anderen Links im Standard-Browser von CachyOS öffnen
-    shell.openExternal(url);
-    return { action: "deny" };
-  });
+};
+
+async function getMails() {
+    const client = new ImapFlow(mailConfig);
+    await client.connect();
+
+    let lock = await client.getMailboxLock('INBOX');
+    let emails = [];
+    try {
+        // Die letzten 10 Mails abrufen
+        for await (let message of client.fetch('1:10', { envelope: true })) {
+            emails.push({
+                subject: message.envelope.subject,
+                from: message.envelope.from[0].address,
+                date: message.envelope.date,
+                id: message.uid
+            });
+        }
+    } finally {
+        lock.release();
+    }
+    await client.logout();
+    return emails;
+}
+
+// IPC Handler: React fragt nach Mails
+ipcMain.handle('get-emails', async () => {
+    try {
+        return await getMails();
+    } catch (error) {
+        console.error("IMAP Fehler:", error);
+        return [];
+    }
+});
+
+// Standard Electron Window Setup...
+function createWindow() {
+    const win = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false
+        }
+    });
+    win.loadURL('http://localhost:3000'); // Dein React Dev Server
 }
 
 app.whenReady().then(createWindow);
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});

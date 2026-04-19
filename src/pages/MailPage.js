@@ -1,62 +1,81 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useMsal } from "@azure/msal-react";
-import { loginRequest } from "../authConfig";
-import { getMails, getMailById, sendMail, deleteMail, markMailRead } from "../utils/graphApi";
+// Microsoft-Imports sind im Müll!
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 
 const FOLDERS = [
-  { id: "inbox",       label: "Posteingang", icon: "📥" },
-  { id: "sentitems",   label: "Gesendet",    icon: "📤" },
-  { id: "drafts",      label: "Entwürfe",    icon: "📝" },
-  { id: "deleteditems",label: "Gelöscht",    icon: "🗑" },
+  { id: "INBOX",       label: "Posteingang", icon: "📥" },
+  { id: "SENT",        label: "Gesendet",    icon: "📤" },
+  { id: "DRAFTS",      label: "Entwürfe",    icon: "📝" },
+  { id: "TRASH",       label: "Gelöscht",    icon: "🗑" },
 ];
 
 export default function MailPage() {
-  const { instance, accounts } = useMsal();
+  // Kein MSAL mehr!
   const [mails, setMails] = useState([]);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
-  const [folder, setFolder] = useState("inbox");
+  const [folder, setFolder] = useState("INBOX");
   const [loading, setLoading] = useState(true);
   const [composing, setComposing] = useState(false);
   const [compose, setCompose] = useState({ to: "", subject: "", body: "" });
 
-  const getToken = useCallback(async () => {
-    const res = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
-    return res.accessToken;
-  }, [instance, accounts]);
+  // Mails laden über die Electron Bridge
+  const loadMails = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Direkter Aufruf an deinen Electron-Main-Prozess
+      const data = await window.api.fetchEmails(folder);
+      setMails(data);
+    } catch (error) {
+      console.error("Fehler beim Laden der Mails:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [folder]);
 
   useEffect(() => {
-    setLoading(true);
     setSelected(null);
     setDetail(null);
-    getToken().then(token => getMails(token, folder)).then(setMails).finally(() => setLoading(false));
-  }, [folder, getToken]);
+    loadMails();
+  }, [folder, loadMails]);
 
   const openMail = async (mail) => {
     setSelected(mail.id);
-    const token = await getToken();
-    if (!mail.isRead) {
-      await markMailRead(token, mail.id);
-      setMails(prev => prev.map(m => m.id === mail.id ? { ...m, isRead: true } : m));
+    try {
+      // Detail-Ansicht laden (Inhalt der Mail)
+      const fullMail = await window.api.getMailDetail(mail.id);
+      setDetail(fullMail);
+      
+      // Optional: Als gelesen markieren
+      if (!mail.isRead) {
+        await window.api.markAsRead(mail.id);
+        setMails(prev => prev.map(m => m.id === mail.id ? { ...m, isRead: true } : m));
+      }
+    } catch (error) {
+      console.error("Fehler beim Öffnen der Mail:", error);
     }
-    const full = await getMailById(token, mail.id);
-    setDetail(full);
   };
 
   const handleDelete = async (id) => {
-    const token = await getToken();
-    await deleteMail(token, id);
-    setMails(prev => prev.filter(m => m.id !== id));
-    if (selected === id) { setSelected(null); setDetail(null); }
+    try {
+      await window.api.deleteMail(id);
+      setMails(prev => prev.filter(m => m.id !== id));
+      if (selected === id) { setSelected(null); setDetail(null); }
+    } catch (error) {
+      alert("Löschen fehlgeschlagen!");
+    }
   };
 
   const handleSend = async () => {
-    const token = await getToken();
-    await sendMail(token, compose);
-    setComposing(false);
-    setCompose({ to: "", subject: "", body: "" });
+    try {
+      await window.api.sendMail(compose);
+      setComposing(false);
+      setCompose({ to: "", subject: "", body: "" });
+      alert("Mail erfolgreich gesendet!");
+    } catch (error) {
+      alert("Senden fehlgeschlagen!");
+    }
   };
 
   return (
@@ -111,17 +130,14 @@ export default function MailPage() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
               <span style={{ fontSize: 13, fontWeight: mail.isRead ? 400 : 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>
-                {mail.from?.emailAddress?.name || mail.from?.emailAddress?.address || "Unbekannt"}
+                {mail.from || "Unbekannt"}
               </span>
               <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>
-                {mail.receivedDateTime ? format(new Date(mail.receivedDateTime), "dd.MM", { locale: de }) : ""}
+                {mail.date ? format(new Date(mail.date), "dd.MM", { locale: de }) : ""}
               </span>
             </div>
             <div style={{ fontSize: 13, fontWeight: mail.isRead ? 400 : 600, color: "var(--text-primary)", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {mail.subject || "(Kein Betreff)"}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {mail.bodyPreview}
             </div>
           </div>
         ))}
@@ -140,15 +156,15 @@ export default function MailPage() {
             </div>
             <div style={{ marginBottom: 16, padding: "12px 16px", background: "var(--bg-elevated)", borderRadius: 8 }}>
               <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                Von: <strong style={{ color: "var(--text-primary)" }}>{detail.from?.emailAddress?.name}</strong> &lt;{detail.from?.emailAddress?.address}&gt;
+                Von: <strong style={{ color: "var(--text-primary)" }}>{detail.from}</strong>
               </div>
               <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                {detail.receivedDateTime && format(new Date(detail.receivedDateTime), "dd. MMMM yyyy, HH:mm 'Uhr'", { locale: de })}
+                {detail.date && format(new Date(detail.date), "dd. MMMM yyyy, HH:mm 'Uhr'", { locale: de })}
               </div>
             </div>
             <div
               style={{ color: "var(--text-primary)", lineHeight: 1.7, fontSize: 14 }}
-              dangerouslySetInnerHTML={{ __html: detail.body?.content }}
+              dangerouslySetInnerHTML={{ __html: detail.body }}
             />
           </>
         ) : (
@@ -158,7 +174,7 @@ export default function MailPage() {
         )}
       </div>
 
-      {/* Compose modal */}
+      {/* Compose modal (bleibt gleich, nur handleSend ist neu) */}
       {composing && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -170,7 +186,7 @@ export default function MailPage() {
             borderRadius: 12, width: 520, boxShadow: "var(--shadow-lg)",
           }}>
             <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontWeight: 600 }}>Neue E-Mail</span>
+              <span style={{ fontWeight: 600 }}>Neue E-Mail (Direktversand)</span>
               <button onClick={() => setComposing(false)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18 }}>×</button>
             </div>
             <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
