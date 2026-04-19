@@ -12,36 +12,49 @@
     "package": "npm run build && electron-builder"
   },
   "dependencies": {
-    "@microsoft/microsoft-graph-client": "^3.0.7",
     "@azure/msal-browser": "^3.10.0",
     "@azure/msal-react": "^2.0.22",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "date-fns": "^3.3.1",
+    "lucide-react": "^0.359.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
     "react-router-dom": "^6.22.0",
-    "date-fns": "^3.3.1",
-    "lucide-react": "^0.359.0"
+    "react-scripts": "5.0.1"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
     "electron": "^29.1.0",
     "electron-builder": "^24.13.3",
+    "electron-is-dev": "^3.0.1",
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "de.deinname.outlook-linux",
+    "appId": "de.paeffgen-it.outlook-linux",
     "productName": "Outlook Linux",
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Office"
     },
-    "files": ["build/**/*", "electron/**/*"],
+    "files": [
+      "build/**/*",
+      "electron/**/*"
+    ],
     "directories": {
       "buildResources": "public"
     }
   },
   "browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
-    "development": ["last 1 chrome version"]
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version"
+    ]
   }
 }
