@@ -1,137 +1,251 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useMsal } from "@azure/msal-react";
-import { loginRequest } from "../authConfig";
-import { getCalendarEvents, createCalendarEvent } from "../utils/graphApi";
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
+import React, { useState } from "react";
+import { ChevronLeft, ChevronRight, Plus, Search, Calendar as CalIcon, Filter, Clock, MapPin } from "lucide-react";
 
 export default function CalendarPage() {
-  const { instance, accounts } = useMsal();
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [newEvent, setNewEvent] = useState({ subject: "", start: "", end: "", location: "" });
-
-  const getToken = useCallback(async () => {
-    const res = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
-    return res.accessToken;
-  }, [instance, accounts]);
-
-  useEffect(() => {
-    getToken().then(t => getCalendarEvents(t)).then(setEvents).finally(() => setLoading(false));
-  }, [getToken]);
-
-  const handleCreate = async () => {
-    const token = await getToken();
-    const event = {
-      subject: newEvent.subject,
-      start: { dateTime: newEvent.start, timeZone: "Europe/Berlin" },
-      end: { dateTime: newEvent.end, timeZone: "Europe/Berlin" },
-      location: { displayName: newEvent.location },
-    };
-    const created = await createCalendarEvent(token, event);
-    setEvents(prev => [...prev, created]);
-    setShowForm(false);
-    setNewEvent({ subject: "", start: "", end: "", location: "" });
-  };
-
-  // Farben für verschiedene Events
-  const colors = ["#2e86ff", "#34c759", "#ff9500", "#ff453a", "#bf5af2", "#ff2d55"];
+  const [view, setView] = useState("week");
+  const timeSlots = Array.from({ length: 15 }, (_, i) => i + 7); // 7:00 bis 21:00 Uhr
 
   return (
-    <div style={{ height: "100%", overflow: "auto" }}>
-      {/* Header */}
-      <div style={{
-        padding: "14px 24px", borderBottom: "1px solid var(--border)",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        background: "var(--bg-surface)",
-      }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600 }}>Kalender – Nächste 30 Tage</h2>
-        <button onClick={() => setShowForm(true)} style={{
-          background: "var(--accent)", color: "white", border: "none",
-          borderRadius: 6, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500,
-        }}>+ Neuer Termin</button>
-      </div>
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--bg-main)" }}>
 
-      {/* Events list */}
-      <div style={{ padding: 24 }}>
-        {loading ? (
-          <p style={{ color: "var(--text-muted)" }}>Laden…</p>
-        ) : events.length === 0 ? (
-          <p style={{ color: "var(--text-muted)" }}>Keine Termine in den nächsten 30 Tagen.</p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {events.map((ev, i) => (
-              <div key={ev.id} style={{
-                background: "var(--bg-elevated)", border: "1px solid var(--border)",
-                borderRadius: 10, padding: "14px 18px",
-                borderLeft: `3px solid ${colors[i % colors.length]}`,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 600 }}>{ev.subject}</h3>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    {ev.start?.dateTime && format(new Date(ev.start.dateTime), "EEE, dd. MMM", { locale: de })}
-                  </span>
-                </div>
-                <div style={{ display: "flex", gap: 16 }}>
-                  <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                    🕐 {ev.start?.dateTime && format(new Date(ev.start.dateTime), "HH:mm", { locale: de })}
-                    {" – "}
-                    {ev.end?.dateTime && format(new Date(ev.end.dateTime), "HH:mm", { locale: de })}
-                  </span>
-                  {ev.location?.displayName && (
-                    <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                      📍 {ev.location.displayName}
-                    </span>
-                  )}
-                </div>
+        {/* 1. Header */}
+        <header style={headerStyle}>
+          <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+            <h2 style={{ fontSize: "22px", fontWeight: 700 }}>Kalender</h2>
+            <div style={btnGroup}>
+              <button style={viewBtn(view === "day")} onClick={() => setView("day")}>Tag</button>
+              <button style={viewBtn(view === "week")} onClick={() => setView("week")}>Woche</button>
+              <button style={viewBtn(view === "month")} onClick={() => setView("month")}>Monat</button>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <div style={searchWrapper}>
+              <Search size={16} color="var(--text-muted)" />
+              <input placeholder="Termine suchen..." style={searchInput} />
+            </div>
+            <button style={primaryBtn}><Plus size={18} /> Neuer Termin</button>
+          </div>
+        </header>
+
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+
+          {/* 2. Mini-Sidebar */}
+          <aside style={calendarSidebar}>
+            <div style={miniCalendarBox}>
+              <div style={{ fontWeight: 600, marginBottom: "10px", fontSize: "13px" }}>April 2026</div>
+              <div style={miniGrid}>
+                {Array.from({ length: 30 }, (_, i) => (
+                    <div key={i} style={miniDayStyle(i + 1 === 22)}>{i + 1}</div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            </div>
 
-      {/* New event modal */}
-      {showForm && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-        }}>
-          <div style={{
-            background: "var(--bg-elevated)", border: "1px solid var(--border-strong)",
-            borderRadius: 12, width: 440, boxShadow: "var(--shadow-lg)",
-          }}>
-            <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontWeight: 600 }}>Neuer Termin</span>
-              <button onClick={() => setShowForm(false)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18 }}>×</button>
+            <div style={{ marginTop: "30px" }}>
+              <h4 style={sidebarTitle}>Meine Kalender</h4>
+              <div style={checkRow}><input type="checkbox" defaultChecked /> <span style={{color: "#2e86ff"}}>●</span> Arbeit</div>
+              <div style={checkRow}><input type="checkbox" defaultChecked /> <span style={{color: "#2ecc71"}}>●</span> Privat</div>
+              <div style={checkRow}><input type="checkbox" /> <span style={{color: "#f1c40f"}}>●</span> Autohaus-Events</div>
             </div>
-            <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-              {[
-                { placeholder: "Titel", key: "subject", type: "text" },
-                { placeholder: "Start (z.B. 2024-03-25T10:00:00)", key: "start", type: "datetime-local" },
-                { placeholder: "Ende", key: "end", type: "datetime-local" },
-                { placeholder: "Ort (optional)", key: "location", type: "text" },
-              ].map(field => (
-                <input key={field.key} type={field.type} placeholder={field.placeholder}
-                  value={newEvent[field.key]}
-                  onChange={e => setNewEvent(prev => ({ ...prev, [field.key]: e.target.value }))}
-                  style={{
-                    background: "var(--bg-surface)", border: "1px solid var(--border-strong)",
-                    borderRadius: 6, padding: "8px 12px", color: "var(--text-primary)",
-                    fontSize: 13, outline: "none", width: "100%", colorScheme: "dark",
-                  }}
-                />
+          </aside>
+
+          {/* 3. Haupt-View */}
+          <main style={mainCalendarArea}>
+            <div style={weekHeader}>
+              <div style={{ width: "60px" }}></div>
+              {["Mo 20.", "Di 21.", "Mi 22.", "Do 23.", "Fr 24.", "Sa 25.", "So 26."].map(day => (
+                  <div key={day} style={dayColHeader(day.includes("22"))}>
+                    {day}
+                  </div>
               ))}
-              <button onClick={handleCreate} style={{
-                background: "var(--accent)", color: "white", border: "none",
-                borderRadius: 6, padding: "9px", cursor: "pointer", fontWeight: 500,
-              }}>
-                Termin erstellen
-              </button>
             </div>
-          </div>
+
+            <div style={scrollArea}>
+              <div style={timeGrid}>
+                {timeSlots.map(hour => (
+                    <div key={hour} style={timeRow}>
+                      <div style={timeLabel}>{hour}:00</div>
+                      {Array.from({ length: 7 }).map((_, i) => (
+                          <div key={i} style={cellStyle}>
+                            {i === 2 && hour === 10 && (
+                                <div style={eventStyle}>
+                                  <div style={{fontWeight: 700}}>AETHER OS Launch</div>
+                                  <div style={{fontSize: "10px", opacity: 0.8}}>10:00 - 12:00</div>
+                                </div>
+                            )}
+                          </div>
+                      ))}
+                    </div>
+                ))}
+              </div>
+            </div>
+          </main>
         </div>
-      )}
-    </div>
+      </div>
   );
 }
+
+// --- ALLE STYLES DEFINIERT ---
+
+const headerStyle = {
+  padding: "16px 24px",
+  borderBottom: "1px solid var(--border)",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  background: "var(--bg-surface)"
+};
+
+const btnGroup = {
+  display: "flex",
+  background: "var(--bg-base)",
+  padding: "4px",
+  borderRadius: "8px",
+  border: "1px solid var(--border)"
+};
+
+const viewBtn = (active) => ({
+  padding: "6px 16px",
+  border: "none",
+  borderRadius: "6px",
+  background: active ? "var(--bg-elevated)" : "transparent",
+  color: active ? "var(--accent)" : "var(--text-muted)",
+  cursor: "pointer",
+  fontSize: "13px",
+  fontWeight: active ? 600 : 400
+});
+
+const searchWrapper = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  background: "var(--bg-base)",
+  padding: "8px 12px",
+  borderRadius: "8px",
+  border: "1px solid var(--border)"
+};
+
+const searchInput = {
+  background: "transparent",
+  border: "none",
+  color: "white",
+  outline: "none",
+  fontSize: "14px"
+};
+
+const primaryBtn = {
+  background: "var(--accent)",
+  color: "white",
+  border: "none",
+  padding: "8px 16px",
+  borderRadius: "8px",
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  fontWeight: 600,
+  cursor: "pointer"
+};
+
+const calendarSidebar = {
+  width: "240px",
+  borderRight: "1px solid var(--border)",
+  padding: "20px",
+  background: "var(--bg-surface)"
+};
+
+const miniCalendarBox = {
+  background: "var(--bg-base)",
+  padding: "12px",
+  borderRadius: "8px",
+  border: "1px solid var(--border)"
+};
+
+const miniGrid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7, 1fr)",
+  gap: "4px",
+  fontSize: "11px",
+  textAlign: "center"
+};
+
+const miniDayStyle = (active) => ({
+  padding: "4px",
+  borderRadius: "4px",
+  background: active ? "var(--accent)" : "transparent",
+  color: active ? "white" : "inherit",
+  cursor: "pointer"
+});
+
+const mainCalendarArea = {
+  flex: 1,
+  display: "flex",
+  flexDirection: "column",
+  background: "var(--bg-base)"
+};
+
+const weekHeader = {
+  display: "flex",
+  borderBottom: "1px solid var(--border)",
+  background: "var(--bg-surface)"
+};
+
+const dayColHeader = (today) => ({
+  flex: 1,
+  padding: "12px",
+  textAlign: "center",
+  fontSize: "13px",
+  fontWeight: 600,
+  color: today ? "var(--accent)" : "var(--text-primary)",
+  borderLeft: "1px solid var(--border)",
+  background: today ? "rgba(46, 134, 255, 0.05)" : "transparent"
+});
+
+const scrollArea = {
+  flex: 1,
+  overflowY: "auto"
+};
+
+const timeGrid = {
+  display: "flex",
+  flexDirection: "column"
+};
+
+const timeRow = {
+  display: "flex",
+  height: "60px",
+  borderBottom: "1px solid var(--border-soft)"
+};
+
+const timeLabel = {
+  width: "60px",
+  fontSize: "11px",
+  color: "var(--text-muted)",
+  textAlign: "right",
+  paddingRight: "10px",
+  marginTop: "-8px"
+};
+
+const cellStyle = {
+  flex: 1,
+  borderLeft: "1px solid var(--border-soft)",
+  position: "relative"
+};
+
+const eventStyle = {
+  position: "absolute",
+  top: "2px",
+  left: "4px",
+  right: "4px",
+  height: "116px",
+  background: "var(--accent)",
+  borderRadius: "6px",
+  padding: "8px",
+  fontSize: "12px",
+  color: "white",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+  zIndex: 10,
+  borderLeft: "4px solid rgba(0,0,0,0.3)"
+};
+
+const sidebarTitle = { fontSize: "11px", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "12px", letterSpacing: "1px", fontWeight: 700 };
+const checkRow = { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", marginBottom: "8px", cursor: "pointer" };

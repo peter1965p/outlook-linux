@@ -1,45 +1,71 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useMsal } from "@azure/msal-react";
-import { loginRequest } from "../authConfig";
-import { getTaskLists, getTasks, createTask, updateTask } from "../utils/graphApi";
+import React, { useState, useEffect } from "react";
 
 export default function TasksPage() {
-  const { instance, accounts } = useMsal();
   const [lists, setLists] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [activeList, setActiveList] = useState(null);
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
 
-  const getToken = useCallback(async () => {
-    const res = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
-    return res.accessToken;
-  }, [instance, accounts]);
-
+  // Listen laden (Autohaus-Kategorien oder private Listen)
   useEffect(() => {
-    getToken().then(t => getTaskLists(t)).then(data => {
-      setLists(data);
-      if (data.length > 0) setActiveList(data[0]);
-    }).finally(() => setLoading(false));
-  }, [getToken]);
+    const loadLists = async () => {
+      try {
+        const data = window.api
+            ? await window.api.getTaskLists()
+            : [{ id: "default", displayName: "Meine Aufgaben" }, { id: "work", displayName: "Autohaus Projekt" }];
 
+        setLists(data);
+        if (data.length > 0) setActiveList(data[0]);
+      } catch (e) {
+        console.error("Listen-Fehler:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadLists();
+  }, []);
+
+  // Aufgaben der aktiven Liste laden
   useEffect(() => {
     if (!activeList) return;
-    getToken().then(t => getTasks(t, activeList.id)).then(setTasks);
-  }, [activeList, getToken]);
+    const loadTasks = async () => {
+      try {
+        const data = window.api
+            ? await window.api.getTasks(activeList.id)
+            : [
+              { id: "1", title: "AETHER OS Architektur finalisieren", status: "notStarted" },
+              { id: "2", title: "CachyOS Kernel-Check", status: "completed" }
+            ];
+        setTasks(data);
+      } catch (e) {
+        console.error("Task-Fehler:", e);
+      }
+    };
+    loadTasks();
+  }, [activeList]);
 
   const handleCreate = async () => {
     if (!newTitle.trim() || !activeList) return;
-    const token = await getToken();
-    const task = await createTask(token, activeList.id, newTitle.trim());
-    setTasks(prev => [...prev, task]);
+
+    const newTask = {
+      id: Math.random().toString(36).substr(2, 9),
+      title: newTitle.trim(),
+      status: "notStarted",
+      listId: activeList.id
+    };
+
+    if (window.api) await window.api.createTask(activeList.id, newTask.title);
+
+    setTasks(prev => [...prev, newTask]);
     setNewTitle("");
   };
 
   const handleToggle = async (task) => {
-    const token = await getToken();
     const newStatus = task.status === "completed" ? "notStarted" : "completed";
-    await updateTask(token, activeList.id, task.id, { status: newStatus });
+
+    if (window.api) await window.api.updateTask(activeList.id, task.id, { status: newStatus });
+
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
   };
 
@@ -47,133 +73,122 @@ export default function TasksPage() {
   const done = tasks.filter(t => t.status === "completed");
 
   return (
-    <div style={{ height: "100%", display: "flex", overflow: "hidden" }}>
-      {/* Lists sidebar */}
-      <div style={{
-        width: 200, background: "var(--bg-surface)", borderRight: "1px solid var(--border)",
-        padding: "12px 8px", flexShrink: 0,
-      }}>
-        <p style={{ fontSize: 11, color: "var(--text-muted)", padding: "4px 10px 8px", textTransform: "uppercase", letterSpacing: 1 }}>
-          Listen
-        </p>
-        {lists.map(list => (
-          <button key={list.id} onClick={() => setActiveList(list)} style={{
-            width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 6,
-            marginBottom: 2, border: "none",
-            background: activeList?.id === list.id ? "var(--bg-active)" : "transparent",
-            color: activeList?.id === list.id ? "var(--accent)" : "var(--text-secondary)",
-            cursor: "pointer", fontSize: 13, fontWeight: activeList?.id === list.id ? 500 : 400,
-          }}>
-            📋 {list.displayName}
-          </button>
-        ))}
-      </div>
-
-      {/* Tasks */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ height: "100%", display: "flex", overflow: "hidden", background: "var(--bg-main)" }}>
+        {/* Sidebar für Listen */}
         <div style={{
-          padding: "14px 24px", borderBottom: "1px solid var(--border)",
-          background: "var(--bg-surface)", display: "flex", alignItems: "center", gap: 12,
+          width: 220, background: "var(--bg-surface)", borderRight: "1px solid var(--border)",
+          padding: "16px 12px", flexShrink: 0,
         }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600 }}>
-            {activeList?.displayName || "Aufgaben"}
-          </h2>
-          <span style={{ fontSize: 12, background: "var(--accent-soft)", color: "var(--accent)", padding: "2px 8px", borderRadius: 20 }}>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 10px 12px", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700 }}>
+            Listen
+          </p>
+          {lists.map(list => (
+              <button key={list.id} onClick={() => setActiveList(list)} style={{
+                width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 8,
+                marginBottom: 4, border: "none",
+                background: activeList?.id === list.id ? "var(--bg-active)" : "transparent",
+                color: activeList?.id === list.id ? "var(--accent)" : "var(--text-secondary)",
+                cursor: "pointer", fontSize: 13, fontWeight: activeList?.id === list.id ? 600 : 400,
+              }}>
+                📋 {list.displayName}
+              </button>
+          ))}
+        </div>
+
+        {/* Aufgaben-Bereich */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{
+            padding: "18px 28px", borderBottom: "1px solid var(--border)",
+            background: "var(--bg-surface)", display: "flex", alignItems: "center", gap: 14,
+          }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700 }}>
+              {activeList?.displayName || "Aufgaben"}
+            </h2>
+            <span style={{ fontSize: 12, background: "var(--accent-soft)", color: "var(--accent)", padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>
             {pending.length} offen
           </span>
-        </div>
+          </div>
 
-        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-          {loading ? <p style={{ color: "var(--text-muted)" }}>Laden…</p> : (
-            <>
-              {/* Add task */}
-              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                <input
-                  placeholder="+ Neue Aufgabe hinzufügen…"
-                  value={newTitle}
-                  onChange={e => setNewTitle(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleCreate()}
-                  style={{
-                    flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border-strong)",
-                    borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 14,
-                    outline: "none",
-                  }}
-                />
-                <button onClick={handleCreate} style={{
-                  background: "var(--accent)", color: "white", border: "none",
-                  borderRadius: 8, padding: "0 18px", cursor: "pointer", fontWeight: 500,
-                }}>
-                  +
-                </button>
-              </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "28px" }}>
+            {loading ? <p style={{ color: "var(--text-muted)" }}>Lade Aufgaben...</p> : (
+                <div style={{ maxWidth: 800 }}>
+                  {/* Input */}
+                  <div style={{ display: "flex", gap: 10, marginBottom: 28 }}>
+                    <input
+                        placeholder="+ Neue Aufgabe hinzufügen..."
+                        value={newTitle}
+                        onChange={e => setNewTitle(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && handleCreate()}
+                        style={{
+                          flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border-strong)",
+                          borderRadius: 10, padding: "12px 16px", color: "var(--text-primary)", fontSize: 15,
+                          outline: "none", transition: "border-color 0.2s"
+                        }}
+                    />
+                    <button onClick={handleCreate} style={{
+                      background: "var(--accent)", color: "white", border: "none",
+                      borderRadius: 10, padding: "0 22px", cursor: "pointer", fontWeight: 700, fontSize: 18
+                    }}>+</button>
+                  </div>
 
-              {/* Pending tasks */}
-              {pending.length === 0 && done.length === 0 && (
-                <p style={{ color: "var(--text-muted)" }}>Keine Aufgaben. Prima! 🎉</p>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {pending.map(task => (
-                  <TaskRow key={task.id} task={task} onToggle={handleToggle} />
-                ))}
-              </div>
-
-              {/* Done */}
-              {done.length > 0 && (
-                <>
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "20px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>
-                    Erledigt ({done.length})
-                  </p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, opacity: 0.5 }}>
-                    {done.map(task => (
-                      <TaskRow key={task.id} task={task} onToggle={handleToggle} />
+                  {/* Liste der Aufgaben */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {pending.map(task => (
+                        <TaskRow key={task.id} task={task} onToggle={handleToggle} />
                     ))}
                   </div>
-                </>
-              )}
-            </>
-          )}
+
+                  {done.length > 0 && (
+                      <>
+                        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "32px 0 12px", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700 }}>
+                          Erledigt ({done.length})
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, opacity: 0.6 }}>
+                          {done.map(task => (
+                              <TaskRow key={task.id} task={task} onToggle={handleToggle} />
+                          ))}
+                        </div>
+                      </>
+                  )}
+                </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
   );
 }
 
 function TaskRow({ task, onToggle }) {
-  const done = task.status === "completed";
+  const isDone = task.status === "completed";
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 12,
-      background: "var(--bg-elevated)", border: "1px solid var(--border)",
-      borderRadius: 8, padding: "10px 14px",
-      transition: "border-color 0.15s",
-    }}
-      onMouseOver={e => e.currentTarget.style.borderColor = "var(--accent)"}
-      onMouseOut={e => e.currentTarget.style.borderColor = "var(--border)"}
-    >
-      <button
-        onClick={() => onToggle(task)}
-        style={{
-          width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
-          border: `2px solid ${done ? "#34c759" : "var(--text-muted)"}`,
-          background: done ? "#34c759" : "transparent",
-          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-          color: "white", fontSize: 11, fontWeight: 700,
-        }}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 14,
+        background: "var(--bg-elevated)", border: "1px solid var(--border)",
+        borderRadius: 10, padding: "12px 18px", transition: "all 0.2s",
+        cursor: "pointer"
+      }}
+           onClick={() => onToggle(task)}
+           onMouseOver={e => e.currentTarget.style.borderColor = "var(--accent)"}
+           onMouseOut={e => e.currentTarget.style.borderColor = "var(--border)"}
       >
-        {done ? "✓" : ""}
-      </button>
-      <span style={{
-        fontSize: 14, flex: 1,
-        textDecoration: done ? "line-through" : "none",
-        color: done ? "var(--text-muted)" : "var(--text-primary)",
-      }}>
+        <div style={{
+          width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+          border: `2px solid ${isDone ? "var(--accent)" : "var(--text-muted)"}`,
+          background: isDone ? "var(--accent)" : "transparent",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: "white", fontSize: 12, fontWeight: 800,
+        }}
+        >
+          {isDone ? "✓" : ""}
+        </div>
+        <span style={{
+          fontSize: 14, flex: 1,
+          textDecoration: isDone ? "line-through" : "none",
+          color: isDone ? "var(--text-muted)" : "var(--text-primary)",
+          fontWeight: isDone ? 400 : 500
+        }}>
         {task.title}
       </span>
-      {task.dueDateTime && (
-        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          📅 {new Date(task.dueDateTime.dateTime).toLocaleDateString("de-DE")}
-        </span>
-      )}
-    </div>
+      </div>
   );
 }

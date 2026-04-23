@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-// Microsoft-Imports sind im Müll!
-import { format } from "date-fns";
+import { format, isValid } from "date-fns";
 import { de } from "date-fns/locale";
 
 const FOLDERS = [
@@ -11,7 +10,6 @@ const FOLDERS = [
 ];
 
 export default function MailPage() {
-  // Kein MSAL mehr!
   const [mails, setMails] = useState([]);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -20,15 +18,28 @@ export default function MailPage() {
   const [composing, setComposing] = useState(false);
   const [compose, setCompose] = useState({ to: "", subject: "", body: "" });
 
-  // Mails laden über die Electron Bridge
+  // Hilfsfunktion für sicheres Datums-Parsing
+  const safeFormat = (dateStr, formatStr, options = {}) => {
+    const d = new Date(dateStr);
+    return isValid(d) ? format(d, formatStr, options) : "Unbekannt";
+  };
+
+  // Mails laden
   const loadMails = useCallback(async () => {
     setLoading(true);
     try {
-      // Direkter Aufruf an deinen Electron-Main-Prozess
-      const data = await window.api.fetchEmails(folder);
-      setMails(data);
+      if (window.api && window.api.fetchEmails) {
+        const data = await window.api.fetchEmails(folder);
+        setMails(Array.isArray(data) ? data : []);
+      } else {
+        setMails([
+          { id: "1", from: "System", subject: "Willkommen bei AETHER OS", date: new Date().toISOString(), isRead: false, snippet: "Entdecke die Möglichkeiten..." },
+          { id: "2", from: "CachyOS", subject: "Performance optimiert", date: new Date().toISOString(), isRead: true, snippet: "Dein System läuft jetzt schneller." }
+        ]);
+      }
     } catch (error) {
-      console.error("Fehler beim Laden der Mails:", error);
+      console.error("Fehler beim Laden:", error);
+      setMails([]);
     } finally {
       setLoading(false);
     }
@@ -42,184 +53,233 @@ export default function MailPage() {
 
   const openMail = async (mail) => {
     setSelected(mail.id);
+    // Sofort-Feedback für den User
+    setDetail({ subject: mail.subject, from: mail.from, date: mail.date, body: "<p>Lade Inhalt...</p>" });
+
     try {
-      // Detail-Ansicht laden (Inhalt der Mail)
-      const fullMail = await window.api.getMailDetail(mail.id);
-      setDetail(fullMail);
-      
-      // Optional: Als gelesen markieren
-      if (!mail.isRead) {
-        await window.api.markAsRead(mail.id);
-        setMails(prev => prev.map(m => m.id === mail.id ? { ...m, isRead: true } : m));
+      if (window.api && window.api.getMailDetail) {
+        const fullMail = await window.api.getMailDetail(mail.id);
+        setDetail(prev => ({ ...prev, body: fullMail.body }));
+
+        if (!mail.isRead && window.api.markAsRead) {
+          await window.api.markAsRead(mail.id);
+          setMails(prev => prev.map(m => m.id === mail.id ? { ...m, isRead: true } : m));
+        }
       }
     } catch (error) {
-      console.error("Fehler beim Öffnen der Mail:", error);
-    }
-  };
-
-  const handleDelete = async (id) => {
-    try {
-      await window.api.deleteMail(id);
-      setMails(prev => prev.filter(m => m.id !== id));
-      if (selected === id) { setSelected(null); setDetail(null); }
-    } catch (error) {
-      alert("Löschen fehlgeschlagen!");
+      console.error("Detail-Fehler:", error);
+      setDetail(prev => ({ ...prev, body: "<p style='color:red;'>Fehler beim Laden der Nachricht.</p>" }));
     }
   };
 
   const handleSend = async () => {
     try {
-      await window.api.sendMail(compose);
-      setComposing(false);
-      setCompose({ to: "", subject: "", body: "" });
-      alert("Mail erfolgreich gesendet!");
+      if (window.api && window.api.sendMail) {
+        await window.api.sendMail(compose);
+        setComposing(false);
+        setCompose({ to: "", subject: "", body: "" });
+        alert("Mail erfolgreich gesendet!");
+      }
     } catch (error) {
       alert("Senden fehlgeschlagen!");
     }
   };
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Folder sidebar */}
-      <div style={{
-        width: 160, background: "var(--bg-surface)", borderRight: "1px solid var(--border)",
-        padding: "12px 8px", flexShrink: 0,
-      }}>
-        {FOLDERS.map(f => (
-          <button key={f.id} onClick={() => setFolder(f.id)} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: 8,
-            padding: "7px 10px", borderRadius: 6, marginBottom: 2, border: "none",
-            background: folder === f.id ? "var(--bg-active)" : "transparent",
-            color: folder === f.id ? "var(--accent)" : "var(--text-secondary)",
-            cursor: "pointer", fontSize: 13, fontWeight: folder === f.id ? 500 : 400,
-          }}>
-            <span>{f.icon}</span> {f.label}
-          </button>
-        ))}
-        <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 12 }}>
-          <button onClick={() => setComposing(true)} style={{
-            width: "100%", padding: "8px 10px", borderRadius: 6,
-            background: "var(--accent)", color: "white", border: "none",
-            cursor: "pointer", fontSize: 13, fontWeight: 500,
-          }}>
-            + Neue Mail
-          </button>
-        </div>
-      </div>
+      <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-main)" }}>
 
-      {/* Mail list */}
-      <div style={{ width: 320, borderRight: "1px solid var(--border)", overflow: "auto", flexShrink: 0 }}>
-        <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600 }}>
-            {FOLDERS.find(f => f.id === folder)?.label}
-          </h2>
-        </div>
-        {loading ? (
-          <div style={{ padding: 20, color: "var(--text-muted)", textAlign: "center" }}>Laden…</div>
-        ) : mails.length === 0 ? (
-          <div style={{ padding: 20, color: "var(--text-muted)", textAlign: "center" }}>Keine Mails</div>
-        ) : mails.map(mail => (
-          <div
-            key={mail.id}
-            onClick={() => openMail(mail)}
-            style={{
-              padding: "12px 16px", borderBottom: "1px solid var(--border)",
-              background: selected === mail.id ? "var(--bg-active)" : !mail.isRead ? "var(--bg-elevated)" : "transparent",
-              cursor: "pointer", transition: "background 0.1s",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-              <span style={{ fontSize: 13, fontWeight: mail.isRead ? 400 : 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>
-                {mail.from || "Unbekannt"}
-              </span>
-              <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>
-                {mail.date ? format(new Date(mail.date), "dd.MM", { locale: de }) : ""}
-              </span>
-            </div>
-            <div style={{ fontSize: 13, fontWeight: mail.isRead ? 400 : 600, color: "var(--text-primary)", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {mail.subject || "(Kein Betreff)"}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Mail detail */}
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        {detail ? (
-          <>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-              <h2 style={{ fontSize: 20, fontWeight: 600, maxWidth: "80%" }}>{detail.subject}</h2>
-              <button onClick={() => handleDelete(detail.id)} title="Löschen"
-                style={{ color: "var(--text-muted)", fontSize: 18, background: "none", border: "none", cursor: "pointer" }}>
-                🗑
+        {/* --- Sidebar für Ordner --- */}
+        <div style={sidebarStyle}>
+          <div style={sidebarHeaderStyle}>AETHER OS MAIL</div>
+          {FOLDERS.map(f => (
+              <button key={f.id} onClick={() => setFolder(f.id)} style={{
+                ...folderBtnStyle,
+                background: folder === f.id ? "var(--bg-active)" : "transparent",
+                color: folder === f.id ? "var(--accent)" : "var(--text-secondary)",
+                fontWeight: folder === f.id ? 600 : 400,
+              }}>
+                <span style={{ fontSize: "16px" }}>{f.icon}</span> {f.label}
               </button>
-            </div>
-            <div style={{ marginBottom: 16, padding: "12px 16px", background: "var(--bg-elevated)", borderRadius: 8 }}>
-              <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                Von: <strong style={{ color: "var(--text-primary)" }}>{detail.from}</strong>
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                {detail.date && format(new Date(detail.date), "dd. MMMM yyyy, HH:mm 'Uhr'", { locale: de })}
-              </div>
-            </div>
-            <div
-              style={{ color: "var(--text-primary)", lineHeight: 1.7, fontSize: 14 }}
-              dangerouslySetInnerHTML={{ __html: detail.body }}
-            />
-          </>
-        ) : (
-          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-            ← Wähle eine Mail aus
+          ))}
+          <div style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+            <button onClick={() => setComposing(true)} style={composeBtnStyle}>
+              + Neue Mail
+            </button>
           </div>
+        </div>
+
+        {/* --- Mail Liste --- */}
+        <div style={listContainerStyle}>
+          <div style={listHeaderStyle}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{FOLDERS.find(f => f.id === folder)?.label}</h2>
+          </div>
+
+          {loading ? (
+              <div style={emptyStateStyle}>Lade Nachrichten...</div>
+          ) : mails.length === 0 ? (
+              <div style={emptyStateStyle}>Keine Nachrichten vorhanden.</div>
+          ) : mails.map(mail => (
+              <div key={mail.id} onClick={() => openMail(mail)} style={{
+                ...mailCardStyle,
+                background: selected === mail.id ? "var(--bg-active)" : !mail.isRead ? "rgba(46, 134, 255, 0.05)" : "transparent",
+                borderLeft: !mail.isRead ? "4px solid var(--accent)" : "4px solid transparent",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: "13px", fontWeight: mail.isRead ? 500 : 800 }}>
+                {mail.from.split('<')[0].trim()}
+              </span>
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                {safeFormat(mail.date, "dd.MM.")}
+              </span>
+                </div>
+                <div style={{ fontSize: "14px", fontWeight: mail.isRead ? 400 : 700, marginBottom: 4 }}>
+                  {mail.subject}
+                </div>
+                <div style={snippetStyle}>{mail.snippet}</div>
+              </div>
+          ))}
+        </div>
+
+        {/* --- Mail Reader (Der HTML Teil) --- */}
+        <div style={{ flex: 1, overflowY: "auto", background: "var(--bg-main)" }}>
+          {detail ? (
+              <div style={{ maxWidth: "850px", margin: "0 auto", padding: "40px" }}>
+                <h1 style={{ fontSize: "28px", fontWeight: 800, marginBottom: "30px", lineHeight: 1.2 }}>{detail.subject}</h1>
+
+                <div style={readerHeaderInfoStyle}>
+                  <div style={avatarStyle}>
+                    {detail.from ? detail.from[0].toUpperCase() : "?"}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "16px", fontWeight: 700 }}>{detail.from}</div>
+                    <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+                      {safeFormat(detail.date, "PPP p", { locale: de })}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                    style={htmlContainerStyle}
+                    dangerouslySetInnerHTML={{ __html: detail.body }}
+                />
+              </div>
+          ) : (
+              <div style={readerEmptyStateStyle}>
+                <div style={{ fontSize: "48px", marginBottom: "20px" }}>📬</div>
+                <div style={{ fontSize: "18px", fontWeight: 600 }}>Posteingang durchsuchen</div>
+                <p>Wähle eine Nachricht aus der Liste aus.</p>
+              </div>
+          )}
+        </div>
+
+        {/* --- Editor Modal --- */}
+        {composing && (
+            <div style={modalOverlayStyle}>
+              <div style={modalContentStyle}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                  <h3 style={{ margin: 0, fontSize: "20px", fontWeight: 800 }}>Neue Nachricht</h3>
+                  <button onClick={() => setComposing(false)} style={closeModalBtnStyle}>✕</button>
+                </div>
+                <input placeholder="An" style={inputStyle} value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} />
+                <input placeholder="Betreff" style={inputStyle} value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} />
+                <textarea placeholder="Schreibe deine Nachricht..." rows={12} style={{ ...inputStyle, resize: "none" }} value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} />
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 15 }}>
+                  <button onClick={() => setComposing(false)} style={cancelBtnStyle}>Abbrechen</button>
+                  <button onClick={handleSend} style={sendBtnStyle}>Senden</button>
+                </div>
+              </div>
+            </div>
         )}
       </div>
-
-      {/* Compose modal (bleibt gleich, nur handleSend ist neu) */}
-      {composing && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-          display: "flex", alignItems: "flex-end", justifyContent: "flex-end",
-          padding: 20, zIndex: 100,
-        }}>
-          <div style={{
-            background: "var(--bg-elevated)", border: "1px solid var(--border-strong)",
-            borderRadius: 12, width: 520, boxShadow: "var(--shadow-lg)",
-          }}>
-            <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontWeight: 600 }}>Neue E-Mail (Direktversand)</span>
-              <button onClick={() => setComposing(false)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18 }}>×</button>
-            </div>
-            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-              {["An", "Betreff"].map((label, i) => (
-                <input key={label} placeholder={label}
-                  value={i === 0 ? compose.to : compose.subject}
-                  onChange={e => setCompose(prev => ({ ...prev, [i === 0 ? "to" : "subject"]: e.target.value }))}
-                  style={{
-                    background: "var(--bg-surface)", border: "1px solid var(--border-strong)",
-                    borderRadius: 6, padding: "8px 12px", color: "var(--text-primary)",
-                    fontSize: 13, outline: "none", width: "100%",
-                  }}
-                />
-              ))}
-              <textarea placeholder="Nachricht…" rows={8}
-                value={compose.body}
-                onChange={e => setCompose(prev => ({ ...prev, body: e.target.value }))}
-                style={{
-                  background: "var(--bg-surface)", border: "1px solid var(--border-strong)",
-                  borderRadius: 6, padding: "8px 12px", color: "var(--text-primary)",
-                  fontSize: 13, outline: "none", resize: "vertical", width: "100%",
-                }}
-              />
-              <button onClick={handleSend} style={{
-                alignSelf: "flex-end", background: "var(--accent)", color: "white",
-                border: "none", borderRadius: 6, padding: "8px 20px", cursor: "pointer", fontWeight: 500,
-              }}>
-                Senden ➤
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
+
+// --- Styles ---
+
+const sidebarStyle = {
+  width: 200, background: "var(--bg-surface)", borderRight: "1px solid var(--border)",
+  padding: "12px 8px", flexShrink: 0, display: "flex", flexDirection: "column"
+};
+
+const sidebarHeaderStyle = {
+  padding: "0 12px 16px 12px", fontWeight: 800, fontSize: "12px",
+  color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px"
+};
+
+const folderBtnStyle = {
+  width: "100%", display: "flex", alignItems: "center", gap: 10,
+  padding: "10px 12px", borderRadius: 8, marginBottom: 4, border: "none",
+  cursor: "pointer", fontSize: "14px", transition: "all 0.2s"
+};
+
+const composeBtnStyle = {
+  width: "100%", padding: "12px", borderRadius: 8, background: "var(--accent)",
+  color: "white", border: "none", cursor: "pointer", fontSize: "14px", fontWeight: 700,
+  boxShadow: "0 4px 12px rgba(46, 134, 255, 0.3)"
+};
+
+const listContainerStyle = {
+  width: 380, borderRight: "1px solid var(--border)", overflowY: "auto",
+  flexShrink: 0, background: "var(--bg-list)"
+};
+
+const listHeaderStyle = {
+  padding: "20px 16px", borderBottom: "1px solid var(--border)",
+  position: "sticky", top: 0, background: "var(--bg-list)", zIndex: 10
+};
+
+const mailCardStyle = {
+  padding: "16px", borderBottom: "1px solid var(--border)",
+  cursor: "pointer", transition: "background 0.2s"
+};
+
+const snippetStyle = {
+  fontSize: "12px", color: "var(--text-muted)", whiteSpace: "nowrap",
+  overflow: "hidden", textOverflow: "ellipsis"
+};
+
+const htmlContainerStyle = {
+  lineHeight: "normal", fontSize: "16px", background: "white",
+  color: "#333", padding: "30px", borderRadius: "12px", minHeight: "400px",
+  boxShadow: "0 10px 30px rgba(0,0,0,0.15)"
+};
+
+const readerHeaderInfoStyle = {
+  display: "flex", alignItems: "center", gap: 15, marginBottom: "40px",
+  padding: "20px", background: "var(--bg-surface)", borderRadius: "16px",
+  border: "1px solid var(--border)"
+};
+
+const avatarStyle = {
+  width: 48, height: 48, borderRadius: "50%", background: "var(--accent)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  color: "white", fontSize: "20px", fontWeight: 800
+};
+
+const emptyStateStyle = { padding: 40, textAlign: "center", color: "var(--text-muted)" };
+
+const readerEmptyStateStyle = {
+  height: "100%", display: "flex", flexDirection: "column",
+  alignItems: "center", justifyContent: "center", color: "var(--text-muted)"
+};
+
+const modalOverlayStyle = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  zIndex: 100, backdropFilter: "blur(4px)"
+};
+
+const modalContentStyle = {
+  background: "var(--bg-elevated)", borderRadius: "20px", width: "700px",
+  padding: "30px", border: "1px solid var(--border)", boxShadow: "0 20px 40px rgba(0,0,0,0.4)"
+};
+
+const inputStyle = {
+  width: "100%", background: "var(--bg-base)", border: "1px solid var(--border-strong)",
+  borderRadius: "10px", padding: "14px", color: "var(--text-primary)", marginBottom: "15px",
+  outline: "none", fontSize: "14px"
+};
+
+const closeModalBtnStyle = { background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "20px" };
+const cancelBtnStyle = { background: "transparent", color: "var(--text-muted)", border: "none", cursor: "pointer", fontWeight: 600 };
+const sendBtnStyle = { background: "var(--accent)", color: "white", padding: "12px 32px", borderRadius: "10px", border: "none", cursor: "pointer", fontWeight: 700 };
