@@ -21,13 +21,13 @@ export default function LoginPage({ onLogin }) {
                     fontSize: 36, margin: "0 auto 16px",
                     boxShadow: "0 8px 32px rgba(46,134,255,0.4)",
                 }}>
-                    A
+                    OL
                 </div>
                 <h1 style={{
                     fontSize: 28, fontWeight: 600,
                     color: "#e8eaf0", letterSpacing: "-0.5px",
                 }}>
-                    AETHER OS
+                    Outlook für Linux
                 </h1>
                 <p style={{ color: "#8892a8", marginTop: 8, fontSize: 15 }}>
                     Unified System for Company & Individual
@@ -45,7 +45,7 @@ export default function LoginPage({ onLogin }) {
                 boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
             }}>
                 <p style={{ color: "#8892a8", marginBottom: 24, lineHeight: 1.6 }}>
-                    Willkommen zurück. Bitte melde dich an, um auf dein System zuzugreifen.
+                    Willkommen zurück. Bitte melde dich an, um auf deine Mails zuzugreifen.
                 </p>
 
                 <button
@@ -73,7 +73,7 @@ export default function LoginPage({ onLogin }) {
                 </button>
 
                 <p style={{ color: "#4a5268", fontSize: 12, marginTop: 20, lineHeight: 1.6 }}>
-                    AETHER OS – Optimiert für CachyOS.<br/>
+                    Outlook – Optimiert für Linux | Build on CachyOS.<br/>
                     Lokale Instanz ohne Cloud-Zwang.
                 </p>
             </div>
